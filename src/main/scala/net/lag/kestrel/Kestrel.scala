@@ -19,11 +19,14 @@ package net.lag.kestrel
 
 import com.twitter.concurrent.NamedPoolThreadFactory
 import com.twitter.conversions.time._
+import com.twitter.common.zookeeper.{ServerSetImpl, ZooKeeperClient}
+import com.twitter.common.quantity.Amount
 import com.twitter.finagle.{ClientConnection, Codec => FinagleCodec, Service => FinagleService}
 import com.twitter.finagle.builder.{Server, ServerBuilder}
 import com.twitter.finagle.stats.OstrichStatsReceiver
 import com.twitter.finagle.thrift._
 import com.twitter.finagle.util.{Timer => FinagleTimer}
+import com.twitter.finagle.zookeeper.ZookeeperServerSetCluster
 import com.twitter.logging.Logger
 import com.twitter.naggati.Codec
 import com.twitter.naggati.codec.{MemcacheResponse, MemcacheRequest, MemcacheCodec}
@@ -31,7 +34,7 @@ import com.twitter.ostrich.admin.{PeriodicBackgroundProcess, RuntimeEnvironment,
   ServiceTracker}
 import com.twitter.ostrich.stats.Stats
 import com.twitter.util.{Duration, Eval, Future, Time}
-import java.net.InetSocketAddress
+import java.net.{InetAddress,InetSocketAddress}
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicInteger
 import org.apache.thrift.protocol.TBinaryProtocol
@@ -43,7 +46,8 @@ class Kestrel(defaultQueueConfig: QueueConfig, builders: List[QueueBuilder], ali
               listenAddress: String, memcacheListenPort: Option[Int], textListenPort: Option[Int],
               thriftListenPort: Option[Int], queuePath: String,
               expirationTimerFrequency: Option[Duration], clientTimeout: Option[Duration],
-              maxOpenTransactions: Int, connectionBacklog: Option[Int])
+              maxOpenTransactions: Int, connectionBacklog: Option[Int],
+              zookeeperServer: Option[String], zookeeperPort: Option[Int], zookeeperPath: Option[String])
       extends Service {
   private val log = Logger.get(getClass.getName)
 
@@ -53,6 +57,7 @@ class Kestrel(defaultQueueConfig: QueueConfig, builders: List[QueueBuilder], ali
   var memcacheService: Option[Server] = None
   var textService: Option[Server] = None
   var thriftService: Option[Server] = None
+  var zkClient: Option[ZooKeeperClient] = None
 
   def thriftCodec = ThriftServerFramedCodec()
 
@@ -99,6 +104,20 @@ class Kestrel(defaultQueueConfig: QueueConfig, builders: List[QueueBuilder], ali
     })
   }
 
+  def joinZKCluster(zookeeperServer: String, zookeeperPort: Int, zookeeperPath: String,
+                    memCachedPort: Int): ZooKeeperClient = {
+    val zookeeperAddress = new InetSocketAddress(zookeeperServer, zookeeperPort)
+    val zookeeperClient = new ZooKeeperClient(
+      Amount.of(2, com.twitter.common.quantity.Time.SECONDS),
+      zookeeperAddress) 
+    val serverSet = new ServerSetImpl(zookeeperClient, zookeeperPath)
+    val cluster = new ZookeeperServerSetCluster(serverSet)
+    val hostAddress = InetAddress.getLocalHost.getHostAddress
+    val selfServiceAddress = new InetSocketAddress(hostAddress, memCachedPort)
+    cluster.join(selfServiceAddress)
+    zookeeperClient
+  }
+
   private def bytesRead(n: Int) {
     Stats.incr("bytes_read", n)
   }
@@ -109,9 +128,11 @@ class Kestrel(defaultQueueConfig: QueueConfig, builders: List[QueueBuilder], ali
 
   def start() {
     log.info("Kestrel config: listenAddress=%s memcachePort=%s textPort=%s queuePath=%s " +
-             "expirationTimerFrequency=%s clientTimeout=%s maxOpenTransactions=%d connectionBacklog=%s",
+             "expirationTimerFrequency=%s clientTimeout=%s maxOpenTransactions=%d connectionBacklog=%s " +
+             "zookeeperServer=%s zookeeperPort=%s zookeeperPath=%s",
              listenAddress, memcacheListenPort, textListenPort, queuePath,
-             expirationTimerFrequency, clientTimeout, maxOpenTransactions, connectionBacklog)
+             expirationTimerFrequency, clientTimeout, maxOpenTransactions, connectionBacklog,
+             zookeeperServer, zookeeperPort, zookeeperPath)
 
     // this means no timeout will be at better granularity than 100 ms.
     timer = new HashedWheelTimer(100, TimeUnit.MILLISECONDS)
@@ -176,6 +197,12 @@ class Kestrel(defaultQueueConfig: QueueConfig, builders: List[QueueBuilder], ali
         }
       }.start()
     }
+
+    // Optionally register memcached API with zookeeper
+    if (zookeeperServer.isDefined) {
+      zkClient = Some(joinZKCluster(zookeeperServer.get, zookeeperPort.get, zookeeperPath.get, 
+                                    memcacheListenPort.get))
+    } 
   }
 
   def shutdown() {

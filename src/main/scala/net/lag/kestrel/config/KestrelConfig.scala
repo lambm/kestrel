@@ -215,6 +215,21 @@ trait KestrelConfig extends ServerConfig[Kestrel] {
   var thriftListenPort: Option[Int] = Some(2229)
 
   /**
+   * Name of the zookeeper server where this kestrel will register as a serverset cluster server
+   */ 
+  var zookeeperServer: Option[String] = None
+
+  /**
+   * Port zookeeper is listening on
+   */
+  var zookeeperPort: Option[Int] = Some(2181)
+
+  /**
+   * Path to register this queue in zookeeper
+   */ 
+  var zookeeperPath: Option[String] = Option("/kestrels")
+
+  /**
    * Where queue journals should be stored. Each queue will have its own files in this folder.
    */
   var queuePath: String = "/tmp"
@@ -245,7 +260,8 @@ trait KestrelConfig extends ServerConfig[Kestrel] {
   def apply(runtime: RuntimeEnvironment) = {
     new Kestrel(
       default(), queues, aliases, listenAddress, memcacheListenPort, textListenPort, thriftListenPort,
-      queuePath, expirationTimerFrequency, clientTimeout, maxOpenTransactions, connectionBacklog
+      queuePath, expirationTimerFrequency, clientTimeout, maxOpenTransactions, connectionBacklog,
+      zookeeperServer, zookeeperPort, zookeeperPath
     )
   }
 

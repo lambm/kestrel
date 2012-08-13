@@ -52,7 +52,8 @@ class ServerSpec extends Specification with TempFolder with TestLogging {
     }
 
     kestrel = new Kestrel(defaultConfig, List(weatherUpdatesConfig), List(aliasWeatherUpdatesConfig),
-      "localhost", Some(PORT), None, None, canonicalFolderName, None, None, 1, None)
+      "localhost", Some(PORT), None, None, canonicalFolderName, None, None, 1, None,
+      None, None, None)
     kestrel.start()
   }
 

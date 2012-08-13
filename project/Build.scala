@@ -26,6 +26,11 @@ object Kestrel extends Build {
       "com.twitter" %% "ostrich" % "4.10.6",
       "com.twitter" %% "naggati" % "2.2.3" intransitive(), // allow custom netty
       "com.twitter" %% "finagle-core" % finagleVersion,
+      "com.twitter" %% "finagle-serversets" % finagleVersion excludeAll(
+        ExclusionRule(organization = "com.sun.jdmk"),
+        ExclusionRule(organization = "com.sun.jmx"),
+        ExclusionRule(organization = "javax.jms")
+      ),
       "com.twitter" %% "finagle-ostrich4" % finagleVersion,
       "com.twitter" %% "finagle-thrift" % finagleVersion, // override scrooge's version
       "org.jboss.netty" % "netty" % "3.2.6.Final",
